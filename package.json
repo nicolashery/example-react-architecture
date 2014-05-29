@@ -1,0 +1,36 @@
+{
+  "name": "example-react-architecture",
+  "version": "0.0.1",
+  "private": true,
+  "dependencies": {
+    "react": "git://github.com/nicolashery/react-bower.git#v0.10.0",
+    "lodash": "^2.4.1",
+    "aviator": "git://github.com/swipely/aviator.git#v0.4.1",
+    "highlightjs": "git://github.com/nicolashery/highlightjs.git#8.0.0"
+  },
+  "devDependencies": {
+    "connect": "^2.14.3",
+    "css-loader": "^0.6.12",
+    "json-loader": "^0.5.0",
+    "jsx-loader": "^0.10.1",
+    "less-loader": "^0.7.2",
+    "send": "^0.3.0",
+    "style-loader": "^0.6.3",
+    "webpack": "^1.1.8",
+    "webpack-dev-middleware": "^1.0.5",
+    "shelljs": "^0.3.0",
+    "jshint-stylish": "^0.2.0",
+    "gulp": "^3.6.2",
+    "gulp-jshint": "^1.6.1",
+    "gulp-react": "^0.3.3"
+  },
+  "scripts": {
+    "start": "node develop",
+    "build": "node build",
+    "server": "node server",
+    "jshint": "gulp jshint-watch"
+  },
+  "engines": {
+    "node": "0.10.x"
+  }
+}
