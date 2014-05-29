@@ -7,8 +7,6 @@ var files = require('./files');
 rm('-rf', 'build');
 mkdir('-p', 'build');
 
-cp('index.html', 'build/index.html');
-
 _.forEach(files.vendor, function(filePath, fileName) {
   cp(filePath, 'build/' + fileName);
 });
