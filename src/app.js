@@ -112,6 +112,14 @@ function pageFromRoute(route) {
   return 'Not Found';
 }
 
+function itemsOrderFromRoute(route) {
+  var queryParams = (route && route.queryParams) || {};
+  if (queryParams.sort === 'descending') {
+    return queryParams.sort;
+  }
+  return 'ascending';
+}
+
 var createDerivedState = function(getState) {
   return {
     isAuthenticated: function() {
@@ -135,9 +143,10 @@ var createDerivedState = function(getState) {
 };
 
 var createActions = function(getState, setState, derivedState) {
-  var getRouteForUri = function(uri, options) {
+  var buildUri = function(pattern, options) {
     var _navigator = Aviator._navigator;
     options = options || {};
+    var uri = pattern;
 
     var namedParams = options.namedParams;
     var queryParams = options.queryParams;
@@ -154,22 +163,45 @@ var createActions = function(getState, setState, derivedState) {
       }
     }
 
+    return uri;
+  };
+
+  var getRouteForUri = function(uri) {
+    var _navigator = Aviator._navigator;
+
     var queryString = uri.split('?')[1];
     if (queryString) {
       queryString = '?' + queryString;
+      uri = uri.replace(queryString, '');
     }
     else {
       queryString = null;
     }
 
     var route = _navigator.createRouteForURI(uri);
-    route = _navigator.createRequest(uri, null, route.matchedRoute);
+    route = _navigator.createRequest(uri, queryString, route.matchedRoute);
 
     return route;
   };
 
   var updateBrowserUri = function(uri) {
     Aviator.navigate(uri, {silent: true});
+  };
+
+  var getUriForRoute = function(route) {
+    var uri = buildUri(route.matchedRoute, {
+      namedParams: route.namedParams,
+      queryParams: route.queryParams
+    });
+    return uri;
+  };
+
+  var updateRouteQueryParams = function(route, queryParams) {
+    route = _.cloneDeep(route);
+    route.queryParams = _.assign(route.queryParams, queryParams);
+    var uri = getUriForRoute(route);
+    var newRoute = getRouteForUri(uri);
+    return newRoute;
   };
 
   var actions = {
@@ -202,8 +234,10 @@ var createActions = function(getState, setState, derivedState) {
       setState({route: route});
     },
 
-    navigateTo: function(uri, options) {
-      var route = getRouteForUri(uri, options);
+    navigateTo: function(pattern, options) {
+      var uri = buildUri(pattern, options);
+      var route = getRouteForUri(uri);
+      updateBrowserUri(uri);
       actions._updateRoute(route);
     },
 
@@ -234,12 +268,17 @@ var createActions = function(getState, setState, derivedState) {
     },
 
     showItems: function(route) {
+      var sort = itemsOrderFromRoute(route);
+
       setState({
         route: route,
-        itemsResource: {status: 'pending'}
+        itemsResource: {status: 'pending'},
+        itemsOrder: sort
       });
 
-      api.getItems({}, function(err, items) {
+      api.getItems({
+        sort: sort
+      }, function(err, items) {
         if (derivedState.page() !== 'Items') {
           setState({itemsResource: null});
           return;
@@ -256,6 +295,19 @@ var createActions = function(getState, setState, derivedState) {
           itemsResource: {status: 'success', data: items}
         });
       });
+    },
+
+    sortItems: function(order) {
+      var route = getState().route;
+      if (derivedState.page() !== 'Items') {
+        return;
+      }
+
+      route = updateRouteQueryParams(route, {sort: order});
+      actions.showItems(route);
+
+      var uri = getUriForRoute(route);
+      updateBrowserUri(uri);
     },
 
     showItemDetails: function(route) {
@@ -289,6 +341,20 @@ var createActions = function(getState, setState, derivedState) {
   return actions;
 };
 
+var printableArray = function(data) {
+  if (!(data && data.length > 2)) {
+    return data;
+  }
+
+  var result = [
+    data[0],
+    data.length - 2 + ' more...',
+    data[2]
+  ];
+
+  return result;
+};
+
 var printableState = function(state, derivedState) {
   var result = {
     authToken: state.authToken,
@@ -300,8 +366,17 @@ var printableState = function(state, derivedState) {
       return '<Route ' + route.uri + '>';
     }()),
     isAuthenticating: state.isAuthenticating,
-    itemsResource: state.itemsResource,
-    itemDetailsResource: state.itemDetailsResource
+    itemsResource: (function() {
+      var resource = state.itemsResource;
+      if (!(resource && resource.data)) {
+        return resource;
+      }
+      return _.assign(_.clone(resource), {
+        data: printableArray(resource.data)
+      });
+    }()),
+    itemDetailsResource: state.itemDetailsResource,
+    itemsOrder: state.itemsOrder
   };
 
   result.derived = {
@@ -330,7 +405,8 @@ var App = React.createClass({
       route: {},
       isAuthenticating: false,
       itemsResource: null,
-      itemDetailsResource: null
+      itemDetailsResource: null,
+      itemsOrder: 'ascending'
     };
   },
 
@@ -459,8 +535,12 @@ var App = React.createClass({
       itemsLink = <span>{'Items · '}</span>;
     }
     else {
+      var href = '#/items';
+      if (this.state.itemsOrder === 'descending') {
+        href = href + '?sort=descending';
+      }
       itemsLink =
-        <span><a href={'#/items'}>{'Items'}</a><span>{' · '}</span></span>;
+        <span><a href={href}>{'Items'}</a><span>{' · '}</span></span>;
     }
 
     if (this.derivedState.isLoggingIn()) {
@@ -542,6 +622,35 @@ var App = React.createClass({
       return <p>{'No items yet'}</p>;
     }
 
+    var self = this;
+    var sort = function(order, e) {
+      e.preventDefault();
+      self.actions.sortItems(order);
+    };
+    var sortActions;
+    if (this.state.itemsOrder === 'descending') {
+      sortActions = (
+        <p>
+          {'Sort: '}
+          <a href={''} onClick={sort.bind(null, 'ascending')}>
+            {'Ascending'}
+          </a>
+          {' | Descending'}
+        </p>
+      );
+    }
+    else {
+      sortActions = (
+        <p>
+          {'Sort: '}
+          {'Ascending | '}
+          <a href={''} onClick={sort.bind(null, 'descending')}>
+            {'Descending'}
+          </a>
+        </p>
+      );
+    }
+
     var itemNodes = _.map(items, function(item) {
       return (
         <li>
@@ -551,7 +660,10 @@ var App = React.createClass({
     });
 
     return (
-      <ul>{itemNodes}</ul>
+      <div>
+        {sortActions}
+        <ul>{itemNodes}</ul>
+      </div>
     );
   },
 
