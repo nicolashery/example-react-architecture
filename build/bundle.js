@@ -163,6 +163,10 @@
 	    return 'Login';
 	  }
 
+	  if (matchedRoute === '/dashboard') {
+	    return 'Dashboard';
+	  }
+
 	  if (matchedRoute === '/items') {
 	    return 'Items';
 	  }
@@ -281,8 +285,12 @@
 	      if (derivedState.isAuthenticated() &&
 	          (page === 'Home' || page === 'Login')) {
 	        console.log('authenticated, redirecting to home');
-	        Aviator.navigate('/items');
+	        Aviator.navigate('/dashboard');
 	        return;
+	      }
+
+	      if (page === 'Dashboard') {
+	        return actions.showDashboard(route);
 	      }
 
 	      if (page === 'Items') {
@@ -306,7 +314,7 @@
 	    login: function() {
 	      setState({isAuthenticating: true});
 	      api.login(function(err, authToken) {
-	        var uri = '/items';
+	        var uri = '/dashboard';
 	        setState({
 	          isAuthenticating: false,
 	          authToken: authToken,
@@ -329,6 +337,15 @@
 	      });
 	    },
 
+	    showDashboard: function(route) {
+	      setState({
+	        route: route,
+	        itemsResource: {status: 'pending'}
+	      });
+
+	      actions.getItems({});
+	    },
+
 	    showItems: function(route) {
 	      var sort = itemsOrderFromRoute(route);
 
@@ -338,10 +355,13 @@
 	        itemsOrder: sort
 	      });
 
-	      api.getItems({
-	        sort: sort
-	      }, function(err, items) {
-	        if (derivedState.page() !== 'Items') {
+	      actions.getItems({sort: sort});
+	    },
+
+	    getItems: function(options) {
+	      api.getItems(options, function(err, items) {
+	        var page = derivedState.page();
+	        if (page !== 'Dashboard' && page !== 'Items') {
 	          setState({itemsResource: null});
 	          return;
 	        }
@@ -516,6 +536,10 @@
 	        target: actions,
 	        '/': '_updateRoute'
 	      },
+	      '/dashboard': {
+	        target: actions,
+	        '/': '_updateRoute'
+	      },
 	      '/items': {
 	        target: actions,
 	        '/': '_updateRoute',
@@ -574,6 +598,10 @@
 	      return React.DOM.h1(null, 'Login');
 	    }
 
+	    if (page === 'Dashboard') {
+	      return React.DOM.h1(null, 'Dashboard');
+	    }
+
 	    if (page === 'Items') {
 	      return React.DOM.h1(null, 'Items');
 	    }
@@ -587,8 +615,23 @@
 
 	  renderNav: function() {
 	    var self = this;
+	    var dashboardLink;
 	    var itemsLink;
 	    var authLink;
+
+	    if (!this.derivedState.isAuthenticated()) {
+	      dashboardLink = null;
+	    }
+	    else if (this.derivedState.page() === 'Dashboard') {
+	      dashboardLink = React.DOM.span(null, 'Dashboard · ');
+	    }
+	    else {
+	      dashboardLink = (
+	        React.DOM.span(null, 
+	          React.DOM.a( {href:'#/dashboard'}, 'Dashboard'),React.DOM.span(null, ' · ')
+	        )
+	      );
+	    }
 
 	    if (!this.derivedState.isAuthenticated()) {
 	      itemsLink = null;
@@ -630,6 +673,7 @@
 
 	    return (
 	      React.DOM.p(null, 
+	        dashboardLink,
 	        itemsLink,
 	        authLink
 	      )
@@ -641,6 +685,10 @@
 
 	    if (page === 'Login') {
 	      return null;
+	    }
+
+	    if (page === 'Dashboard') {
+	      return this.renderDashboard();
 	    }
 
 	    if (page === 'Items') {
@@ -665,6 +713,31 @@
 	  prettyPrintState: function() {
 	    var prettyState = printableState(this.state, this.derivedState);
 	    return JSON.stringify(prettyState, null, 2);
+	  },
+
+	  renderDashboard: function() {
+	    var resource = this.state.itemsResource || {};
+
+	    if (resource.status === 'pending') {
+	      return React.DOM.p(null, 'Loading summary...');
+	    }
+
+	    if (resource.status === 'error') {
+	      return React.DOM.p(null, 'Error loading summary');
+	    }
+
+	    var items = resource.data;
+
+	    if (!(items && items.length)) {
+	      return React.DOM.p(null, 'No items yet');
+	    }
+
+	    var text = items.length + ' items';
+	    if (items.length === 1) {
+	      text = '1 item';
+	    }
+
+	    return React.DOM.p(null, React.DOM.a( {href:'#/items'}, text));
 	  },
 
 	  renderItems: function() {
