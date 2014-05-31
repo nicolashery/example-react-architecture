@@ -101,6 +101,10 @@ function pageFromRoute(route) {
     return 'Login';
   }
 
+  if (matchedRoute === '/dashboard') {
+    return 'Dashboard';
+  }
+
   if (matchedRoute === '/items') {
     return 'Items';
   }
@@ -219,8 +223,12 @@ var createActions = function(getState, setState, derivedState) {
       if (derivedState.isAuthenticated() &&
           (page === 'Home' || page === 'Login')) {
         console.log('authenticated, redirecting to home');
-        Aviator.navigate('/items');
+        Aviator.navigate('/dashboard');
         return;
+      }
+
+      if (page === 'Dashboard') {
+        return actions.showDashboard(route);
       }
 
       if (page === 'Items') {
@@ -244,7 +252,7 @@ var createActions = function(getState, setState, derivedState) {
     login: function() {
       setState({isAuthenticating: true});
       api.login(function(err, authToken) {
-        var uri = '/items';
+        var uri = '/dashboard';
         setState({
           isAuthenticating: false,
           authToken: authToken,
@@ -267,6 +275,15 @@ var createActions = function(getState, setState, derivedState) {
       });
     },
 
+    showDashboard: function(route) {
+      setState({
+        route: route,
+        itemsResource: {status: 'pending'}
+      });
+
+      actions.getItems({});
+    },
+
     showItems: function(route) {
       var sort = itemsOrderFromRoute(route);
 
@@ -276,10 +293,13 @@ var createActions = function(getState, setState, derivedState) {
         itemsOrder: sort
       });
 
-      api.getItems({
-        sort: sort
-      }, function(err, items) {
-        if (derivedState.page() !== 'Items') {
+      actions.getItems({sort: sort});
+    },
+
+    getItems: function(options) {
+      api.getItems(options, function(err, items) {
+        var page = derivedState.page();
+        if (page !== 'Dashboard' && page !== 'Items') {
           setState({itemsResource: null});
           return;
         }
@@ -454,6 +474,10 @@ var App = React.createClass({
         target: actions,
         '/': '_updateRoute'
       },
+      '/dashboard': {
+        target: actions,
+        '/': '_updateRoute'
+      },
       '/items': {
         target: actions,
         '/': '_updateRoute',
@@ -512,6 +536,10 @@ var App = React.createClass({
       return <h1>{'Login'}</h1>;
     }
 
+    if (page === 'Dashboard') {
+      return <h1>{'Dashboard'}</h1>;
+    }
+
     if (page === 'Items') {
       return <h1>{'Items'}</h1>;
     }
@@ -525,8 +553,23 @@ var App = React.createClass({
 
   renderNav: function() {
     var self = this;
+    var dashboardLink;
     var itemsLink;
     var authLink;
+
+    if (!this.derivedState.isAuthenticated()) {
+      dashboardLink = null;
+    }
+    else if (this.derivedState.page() === 'Dashboard') {
+      dashboardLink = <span>{'Dashboard · '}</span>;
+    }
+    else {
+      dashboardLink = (
+        <span>
+          <a href={'#/dashboard'}>{'Dashboard'}</a><span>{' · '}</span>
+        </span>
+      );
+    }
 
     if (!this.derivedState.isAuthenticated()) {
       itemsLink = null;
@@ -568,6 +611,7 @@ var App = React.createClass({
 
     return (
       <p>
+        {dashboardLink}
         {itemsLink}
         {authLink}
       </p>
@@ -579,6 +623,10 @@ var App = React.createClass({
 
     if (page === 'Login') {
       return null;
+    }
+
+    if (page === 'Dashboard') {
+      return this.renderDashboard();
     }
 
     if (page === 'Items') {
@@ -603,6 +651,31 @@ var App = React.createClass({
   prettyPrintState: function() {
     var prettyState = printableState(this.state, this.derivedState);
     return JSON.stringify(prettyState, null, 2);
+  },
+
+  renderDashboard: function() {
+    var resource = this.state.itemsResource || {};
+
+    if (resource.status === 'pending') {
+      return <p>{'Loading summary...'}</p>;
+    }
+
+    if (resource.status === 'error') {
+      return <p>{'Error loading summary'}</p>;
+    }
+
+    var items = resource.data;
+
+    if (!(items && items.length)) {
+      return <p>{'No items yet'}</p>;
+    }
+
+    var text = items.length + ' items';
+    if (items.length === 1) {
+      text = '1 item';
+    }
+
+    return <p><a href={'#/items'}>{text}</a></p>;
   },
 
   renderItems: function() {
