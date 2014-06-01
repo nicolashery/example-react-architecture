@@ -216,14 +216,14 @@ var createActions = function(getState, setState, derivedState) {
 
       if (!derivedState.isAuthenticated() && page !== 'Login') {
         console.log('not authenticated, redirecting to login');
-        Aviator.navigate('/login');
+        actions.navigateTo('/login');
         return;
       }
 
       if (derivedState.isAuthenticated() &&
           (page === 'Home' || page === 'Login')) {
         console.log('authenticated, redirecting to home');
-        Aviator.navigate('/dashboard');
+        actions.navigateTo('/dashboard');
         return;
       }
 
@@ -275,6 +275,16 @@ var createActions = function(getState, setState, derivedState) {
       });
     },
 
+    handleResourceError: function(resourceKey, err) {
+      var resource = _.clone(getState()[resourceKey]);
+      var stateUpdate = {};
+      stateUpdate[resourceKey] = _.assign(resource, {
+        status: 'error',
+        data: err
+      });
+      setState(stateUpdate);
+    },
+
     showDashboard: function(route) {
       setState({
         route: route,
@@ -298,17 +308,8 @@ var createActions = function(getState, setState, derivedState) {
 
     getItems: function(options) {
       api.getItems(options, function(err, items) {
-        var page = derivedState.page();
-        if (page !== 'Dashboard' && page !== 'Items') {
-          setState({itemsResource: null});
-          return;
-        }
-
         if (err) {
-          setState({
-            itemsResource: {status: 'error', data: err}
-          });
-          return;
+          return actions.handleResourceError('itemsResource', err);
         }
 
         setState({
@@ -339,16 +340,8 @@ var createActions = function(getState, setState, derivedState) {
       });
 
       api.getItem(id, function(err, item) {
-        if (derivedState.page() !== 'Item Details') {
-          setState({itemDetailsResource: null});
-          return;
-        }
-
         if (err) {
-          setState({
-            itemDetailsResource: {status: 'error', data: err, request: {id: id}}
-          });
-          return;
+          return actions.handleResourceError('itemDetailsResource', err);
         }
 
         setState({
