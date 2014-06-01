@@ -252,26 +252,22 @@ var createActions = function(getState, setState, derivedState) {
     login: function() {
       setState({isAuthenticating: true});
       api.login(function(err, authToken) {
-        var uri = '/dashboard';
         setState({
           isAuthenticating: false,
-          authToken: authToken,
-          route: getRouteForUri(uri)
+          authToken: authToken
         });
-        updateBrowserUri(uri);
+        actions.navigateTo('/dashboard');
       });
     },
 
     logout: function() {
       setState({isAuthenticating: true});
       api.logout(function() {
-        var uri = '/login';
         setState({
           isAuthenticating: false,
-          authToken: null,
-          route: getRouteForUri(uri)
+          authToken: null
         });
-        updateBrowserUri(uri);
+        actions.navigateTo('/login');
       });
     },
 
