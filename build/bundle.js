@@ -48,8 +48,29 @@
 	var React = window.React;
 
 	var App = __webpack_require__(1);
+	var api = __webpack_require__(2);
 
-	App.init(function(err, props) {
+	var modules = [
+	  __webpack_require__(3),
+	  __webpack_require__(4)
+	];
+
+	var initialState = window.initialState || {};
+
+	function init(props, cb) {
+	  props.api = api;
+
+	  api.loadSession(function(err, authToken) {
+	    props.authToken = authToken;
+	    cb(err, props);
+	  });
+	}
+
+	init({
+	  modules: modules,
+	  defaultRoute: '/dashboard',
+	  initialState: initialState
+	}, function(err, props) {
 	  window.app = React.renderComponent(
 	    App(props), document.getElementById('app')
 	  );
@@ -64,8 +85,12 @@
 
 	var React = window.React;
 	var _ = window._;
-	var Aviator = window.Aviator;
 	var hljs = window.hljs;
+
+	var createRouter = __webpack_require__(5);
+	var createActions = __webpack_require__(6);
+	var utils = __webpack_require__(7);
+	var AppModules = __webpack_require__(8);
 
 	// Shallow difference of two objects
 	// Returns all attributes and their values in `destination`
@@ -83,7 +108,251 @@
 	  return result;
 	}
 
+	var App = React.createClass({displayName: 'App',
+	  propTypes: {
+	    modules: React.PropTypes.array,
+	    defaultRoute: React.PropTypes.string,
+	    initialState: React.PropTypes.object,
+	    api: React.PropTypes.object,
+	    authToken: React.PropTypes.string
+	  },
 
+	  getDefaultProps: function() {
+	    return {
+	      modules: [],
+	      initialState: {},
+	      authToken: null
+	    };
+	  },
+
+	  getInitialState: function() {
+	    return {
+	      authToken: this.props.authToken,
+	      route: {},
+	      isAuthenticating: false,
+	      itemsResource: null
+	    };
+	  },
+
+	  getDerivedState: function() {
+	    var self = this;
+
+	    return {
+	      isAuthenticated: function() {
+	        return Boolean(self.state.authToken);
+	      },
+
+	      isLoggingIn: function() {
+	        return !Boolean(self.state.authToken) && self.state.isAuthenticating;
+	      },
+
+	      isLoggingOut: function() {
+	        return Boolean(self.state.authToken) && self.state.isAuthenticating;
+	      }
+	    };
+	  },
+
+	  componentWillMount: function() {
+	    this.modules = this.setUpModules();
+	    this.defaultRoute = this.props.defaultRoute;
+	    this.setState(AppModules.initialState(this.modules));
+	    this.derivedState = this.setUpDerivedState();
+	    this.api = this.props.api;
+	    this.utils = utils;
+	    this.actions = this.setUpActions();
+	    this.router = this.setUpRouter();
+	    this.routeHandlers = AppModules.routeHandlers(this.modules);
+	    this.renderers = AppModules.renderers(this.modules);
+
+	    this.router.start();
+	  },
+
+	  setUpModules: function() {
+	    var self = this;
+	    var modules = this.props.modules;
+
+	    modules = _.map(modules, function(mod) {
+	      return _.assign(mod.bindToApp(self), {name: mod.name});
+	    });
+
+	    return modules;
+	  },
+
+	  hasModule: function(name) {
+	    var match = _.find(this.modules, {name: name});
+	    return Boolean(match);
+	  },
+
+	  setUpDerivedState: function() {
+	    var derivedState = this.getDerivedState();
+	    derivedState =
+	      _.assign(derivedState, AppModules.derivedState(this.modules));
+	    return derivedState;
+	  },
+
+	  setUpActions: function() {
+	    var actions = createActions(this);
+	    actions = _.assign(actions, AppModules.actions(this.modules));
+	    return actions;
+	  },
+
+	  setUpRouter: function() {
+	    var router = createRouter();
+	    var routes = {
+	      '/': {
+	        target: this.actions,
+	        '/': '_updateRoute'
+	      },
+	      '/login': {
+	        target: this.actions,
+	        '/': '_updateRoute'
+	      }
+	    };
+	    routes = _.assign(routes, AppModules.routes(this.modules));
+	    router.setRoutes(routes);
+	    return router;
+	  },
+
+	  componentWillUpdate: function(nextProps, nextState) {
+	    var stateDiff = objectDifference(nextState, this.state);
+	    console.log('State changed', stateDiff);
+	  },
+
+	  componentDidMount: function() {
+	    this.applySyntaxColoring();
+	  },
+
+	  componentDidUpdate: function() {
+	    this.applySyntaxColoring();
+	  },
+
+	  applySyntaxColoring: function() {
+	    var el = this.refs.state.getDOMNode();
+	    hljs.highlightBlock(el);
+	  },
+
+	  render: function() {
+	    var title = this.renderTitle();
+	    var nav = this.renderNav();
+	    var content = this.renderContent();
+	    var state = this.renderState();
+
+	    return (
+	      React.DOM.div(null, 
+	        title,
+	        nav,
+	        content,
+	        state
+	      )
+	     );
+	  },
+
+	  renderTitle: function() {
+	    var path = this.state.route.matchedRoute;
+
+	    if (path === '/login') {
+	      return React.DOM.h1(null, 'Login');
+	    }
+
+	    var title = this.utils.firstTruthy(this.renderers.title);
+	    if (title) {
+	      return React.DOM.h1(null, title);
+	    }
+
+	    return React.DOM.h1(null, 'Not Found');
+	  },
+
+	  renderNav: function() {
+	    var self = this;
+	    var authLink;
+
+	    var moduleLinks = _.reduce(this.renderers.navLinks, function(acc, renderer) {
+	      var links = renderer();
+	      acc = acc.concat(links);
+	      return acc;
+	    }, []);
+
+	    if (!moduleLinks.length) {
+	      moduleLinks = null;
+	    }
+	    else {
+	      moduleLinks = (
+	        React.DOM.span(null, moduleLinks)
+	      );
+	    }
+
+	    if (this.derivedState.isLoggingIn()) {
+	      authLink = React.DOM.span(null, 'Logging in...');
+	    }
+	    else if (this.derivedState.isLoggingOut()) {
+	      authLink = React.DOM.span(null, 'Logging out...');
+	    }
+	    else if (!this.derivedState.isAuthenticated()) {
+	      var login = function(e) {
+	        e.preventDefault();
+	        self.actions.login();
+	      };
+
+	      authLink = React.DOM.a( {href:'', onClick:login}, 'Log in');
+	    }
+	    else {
+	      var logout = function(e) {
+	        e.preventDefault();
+	        self.actions.logout();
+	      };
+
+	      authLink = React.DOM.a( {href:'', onClick:logout}, 'Log out');
+	    }
+
+	    return (
+	      React.DOM.p(null, 
+	        moduleLinks,
+	        authLink
+	      )
+	    );
+	  },
+
+	  renderContent: function() {
+	    var path = this.state.route.matchedRoute;
+
+	    if (path === '/login') {
+	      return null;
+	    }
+
+	    var content = this.utils.firstTruthy(this.renderers.content);
+	    if (content) {
+	      return content;
+	    }
+
+	    return null;
+	  },
+
+	  renderState: function() {
+	    return (
+	      React.DOM.pre( {ref:'state'}, React.DOM.code(null, 
+	        this.prettyPrintState()
+	      ))
+	    );
+	  },
+
+	  prettyPrintState: function() {
+	    var prettyState = _.cloneDeep(this.state);
+	    prettyState.derived = _.reduce(this.derivedState, function(acc, func, key) {
+	      acc[key] = func();
+	      return acc;
+	    }, {});
+	    return JSON.stringify(prettyState, null, 2);
+	  }
+	});
+
+	module.exports = App;
+
+
+/***/ },
+/* 2 */
+/***/ function(module, exports, __webpack_require__) {
+
+	var _ = window._;
 
 	var api = {};
 
@@ -150,271 +419,191 @@
 	  }, 1000);
 	};
 
-	function pageFromRoute(route) {
-	  route = route || {};
-	  var matchedRoute = route.matchedRoute;
-	  var uri = route.uri;
+	module.exports = api;
 
-	  if (matchedRoute === '' && (uri === '/' || uri === '')) {
-	    return 'Home';
-	  }
 
-	  if (matchedRoute === '/login') {
-	    return 'Login';
-	  }
+/***/ },
+/* 3 */
+/***/ function(module, exports, __webpack_require__) {
 
-	  if (matchedRoute === '/dashboard') {
-	    return 'Dashboard';
-	  }
+	module.exports = __webpack_require__(9);
 
-	  if (matchedRoute === '/items') {
-	    return 'Items';
-	  }
 
-	  if (matchedRoute === '/items/:id') {
-	    return 'Item Details';
-	  }
+/***/ },
+/* 4 */
+/***/ function(module, exports, __webpack_require__) {
 
-	  return 'Not Found';
-	}
+	module.exports = __webpack_require__(10);
 
-	function itemsOrderFromRoute(route) {
-	  var queryParams = (route && route.queryParams) || {};
-	  if (queryParams.sort === 'descending') {
-	    return queryParams.sort;
-	  }
-	  return 'ascending';
-	}
 
-	var createDerivedState = function(getState) {
-	  return {
-	    isAuthenticated: function() {
-	      return Boolean(getState().authToken);
+/***/ },
+/* 5 */
+/***/ function(module, exports, __webpack_require__) {
+
+	var _ = window._;
+	var Aviator = window.Aviator;
+
+	var createRouter = function() {
+	  var router = {
+	    setRoutes: function(routes) {
+	      Aviator.pushStateEnabled = false;
+	      Aviator.setRoutes(routes);
 	    },
 
-	    isLoggingIn: function() {
-	      var state = getState();
-	      return !Boolean(state.authToken) && state.isAuthenticating;
+	    start: function() {
+	      Aviator.dispatch();
 	    },
 
-	    isLoggingOut: function() {
-	      var state = getState();
-	      return Boolean(state.authToken) && state.isAuthenticating;
-	    },
+	    buildUri: function(pattern, options) {
+	      var _navigator = Aviator._navigator;
+	      options = options || {};
+	      var uri = pattern;
 
-	    page: function() {
-	      return pageFromRoute(getState().route);
-	    }
-	  };
-	};
+	      var namedParams = options.namedParams;
+	      var queryParams = options.queryParams;
 
-	var createActions = function(getState, setState, derivedState) {
-	  var buildUri = function(pattern, options) {
-	    var _navigator = Aviator._navigator;
-	    options = options || {};
-	    var uri = pattern;
+	      if (queryParams) {
+	        uri += _navigator.serializeQueryParams(queryParams);
+	      }
 
-	    var namedParams = options.namedParams;
-	    var queryParams = options.queryParams;
-
-	    if (queryParams) {
-	      uri += _navigator.serializeQueryParams(queryParams);
-	    }
-
-	    if (namedParams) {
-	      for (var p in namedParams) {
-	        if (namedParams.hasOwnProperty(p)) {
-	          uri = uri.replace(':' + p, encodeURIComponent(namedParams[p]));
+	      if (namedParams) {
+	        for (var p in namedParams) {
+	          if (namedParams.hasOwnProperty(p)) {
+	            uri = uri.replace(':' + p, encodeURIComponent(namedParams[p]));
+	          }
 	        }
 	      }
+
+	      return uri;
+	    },
+
+	    getRouteForUri: function(uri) {
+	      var _navigator = Aviator._navigator;
+
+	      var queryString = uri.split('?')[1];
+	      if (queryString) {
+	        queryString = '?' + queryString;
+	        uri = uri.replace(queryString, '');
+	      }
+	      else {
+	        queryString = null;
+	      }
+
+	      var route = _navigator.createRouteForURI(uri);
+	      route = _navigator.createRequest(uri, queryString, route.matchedRoute);
+
+	      return route;
+	    },
+
+	    updateBrowserUri: function(uri) {
+	      Aviator.navigate(uri, {silent: true});
+	    },
+
+	    getUriForRoute: function(route) {
+	      var uri = router.buildUri(route.matchedRoute, {
+	        namedParams: route.namedParams,
+	        queryParams: route.queryParams
+	      });
+	      return uri;
+	    },
+
+	    updateRouteQueryParams: function(route, queryParams) {
+	      route = _.cloneDeep(route);
+	      route.queryParams = _.assign(route.queryParams, queryParams);
+	      var uri = router.getUriForRoute(route);
+	      var newRoute = router.getRouteForUri(uri);
+	      return newRoute;
 	    }
-
-	    return uri;
 	  };
 
-	  var getRouteForUri = function(uri) {
-	    var _navigator = Aviator._navigator;
+	  return router;
+	};
 
-	    var queryString = uri.split('?')[1];
-	    if (queryString) {
-	      queryString = '?' + queryString;
-	      uri = uri.replace(queryString, '');
-	    }
-	    else {
-	      queryString = null;
-	    }
+	module.exports = createRouter;
 
-	    var route = _navigator.createRouteForURI(uri);
-	    route = _navigator.createRequest(uri, queryString, route.matchedRoute);
 
-	    return route;
-	  };
+/***/ },
+/* 6 */
+/***/ function(module, exports, __webpack_require__) {
 
-	  var updateBrowserUri = function(uri) {
-	    Aviator.navigate(uri, {silent: true});
-	  };
+	var _ = window._;
 
-	  var getUriForRoute = function(route) {
-	    var uri = buildUri(route.matchedRoute, {
-	      namedParams: route.namedParams,
-	      queryParams: route.queryParams
-	    });
-	    return uri;
-	  };
-
-	  var updateRouteQueryParams = function(route, queryParams) {
-	    route = _.cloneDeep(route);
-	    route.queryParams = _.assign(route.queryParams, queryParams);
-	    var uri = getUriForRoute(route);
-	    var newRoute = getRouteForUri(uri);
-	    return newRoute;
-	  };
-
+	var createActions = function(app) {
 	  var actions = {
 	    _updateRoute: function(route) {
 	      // Really need to deep clone?
 	      route = _.cloneDeep(route);
-	      var page = pageFromRoute(route);
+	      var path = route.matchedRoute;
+	      var isHomePath = (path === '' && (route.uri === '/' || route.uri === ''));
 
-	      if (!derivedState.isAuthenticated() && page !== 'Login') {
+	      if (!app.derivedState.isAuthenticated() && path !== '/login') {
 	        console.log('not authenticated, redirecting to login');
-	        Aviator.navigate('/login');
+	        actions.navigateTo('/login');
 	        return;
 	      }
 
-	      if (derivedState.isAuthenticated() &&
-	          (page === 'Home' || page === 'Login')) {
+	      if (app.derivedState.isAuthenticated() &&
+	          (isHomePath || path === '/login')) {
 	        console.log('authenticated, redirecting to home');
-	        Aviator.navigate('/dashboard');
+	        actions.navigateTo(app.defaultRoute);
 	        return;
 	      }
 
-	      if (page === 'Dashboard') {
-	        return actions.showDashboard(route);
+	      var routeWasHandled = app.utils.firstTruthy(app.routeHandlers, route);
+	      if (routeWasHandled) {
+	        return;
 	      }
 
-	      if (page === 'Items') {
-	        return actions.showItems(route);
-	      }
-
-	      if (page === 'Item Details') {
-	        return actions.showItemDetails(route);
-	      }
-
-	      setState({route: route});
+	      app.setState({route: route});
 	    },
 
 	    navigateTo: function(pattern, options) {
-	      var uri = buildUri(pattern, options);
-	      var route = getRouteForUri(uri);
-	      updateBrowserUri(uri);
+	      var uri = app.router.buildUri(pattern, options);
+	      var route = app.router.getRouteForUri(uri);
+	      app.router.updateBrowserUri(uri);
 	      actions._updateRoute(route);
 	    },
 
 	    login: function() {
-	      setState({isAuthenticating: true});
-	      api.login(function(err, authToken) {
-	        var uri = '/dashboard';
-	        setState({
+	      app.setState({isAuthenticating: true});
+	      app.api.login(function(err, authToken) {
+	        app.setState({
 	          isAuthenticating: false,
-	          authToken: authToken,
-	          route: getRouteForUri(uri)
+	          authToken: authToken
 	        });
-	        updateBrowserUri(uri);
+	        actions.navigateTo('/dashboard');
 	      });
 	    },
 
 	    logout: function() {
-	      setState({isAuthenticating: true});
-	      api.logout(function() {
-	        var uri = '/login';
-	        setState({
+	      app.setState({isAuthenticating: true});
+	      app.api.logout(function() {
+	        app.setState({
 	          isAuthenticating: false,
-	          authToken: null,
-	          route: getRouteForUri(uri)
+	          authToken: null
 	        });
-	        updateBrowserUri(uri);
+	        actions.navigateTo('/login');
 	      });
 	    },
 
-	    showDashboard: function(route) {
-	      setState({
-	        route: route,
-	        itemsResource: {status: 'pending'}
+	    handleResourceError: function(resourceKey, err) {
+	      var resource = _.clone(app.state[resourceKey]);
+	      var stateUpdate = {};
+	      stateUpdate[resourceKey] = _.assign(resource, {
+	        status: 'error',
+	        data: err
 	      });
-
-	      actions.getItems({});
-	    },
-
-	    showItems: function(route) {
-	      var sort = itemsOrderFromRoute(route);
-
-	      setState({
-	        route: route,
-	        itemsResource: {status: 'pending'},
-	        itemsOrder: sort
-	      });
-
-	      actions.getItems({sort: sort});
+	      app.setState(stateUpdate);
 	    },
 
 	    getItems: function(options) {
-	      api.getItems(options, function(err, items) {
-	        var page = derivedState.page();
-	        if (page !== 'Dashboard' && page !== 'Items') {
-	          setState({itemsResource: null});
-	          return;
-	        }
-
+	      app.api.getItems(options, function(err, items) {
 	        if (err) {
-	          setState({
-	            itemsResource: {status: 'error', data: err}
-	          });
-	          return;
+	          return actions.handleResourceError('itemsResource', err);
 	        }
 
-	        setState({
+	        app.setState({
 	          itemsResource: {status: 'success', data: items}
-	        });
-	      });
-	    },
-
-	    sortItems: function(order) {
-	      var route = getState().route;
-	      if (derivedState.page() !== 'Items') {
-	        return;
-	      }
-
-	      route = updateRouteQueryParams(route, {sort: order});
-	      actions.showItems(route);
-
-	      var uri = getUriForRoute(route);
-	      updateBrowserUri(uri);
-	    },
-
-	    showItemDetails: function(route) {
-	      var id = route.namedParams.id;
-
-	      setState({
-	        route: route,
-	        itemDetailsResource: {status: 'pending', request: {id: id}}
-	      });
-
-	      api.getItem(id, function(err, item) {
-	        if (derivedState.page() !== 'Item Details') {
-	          setState({itemDetailsResource: null});
-	          return;
-	        }
-
-	        if (err) {
-	          setState({
-	            itemDetailsResource: {status: 'error', data: err, request: {id: id}}
-	          });
-	          return;
-	        }
-
-	        setState({
-	          itemDetailsResource: {status: 'success', data: item, request: {id: id}}
 	        });
 	      });
 	    }
@@ -423,300 +612,181 @@
 	  return actions;
 	};
 
-	var printableArray = function(data) {
-	  if (!(data && data.length > 2)) {
-	    return data;
+	module.exports = createActions;
+
+
+/***/ },
+/* 7 */
+/***/ function(module, exports, __webpack_require__) {
+
+	var _ = window._;
+
+	var slice = [].slice;
+
+	var utils = {
+	  firstTruthy: function(coll) {
+	    var args = slice.call(arguments, 1);
+
+	    return _.reduce(coll, function(result, val) {
+	      if (result) {
+	        return result;
+	      }
+	      if (typeof val === 'function') {
+	        val = val.apply(null, args);
+	      }
+	      if (!val) {
+	        return result;
+	      }
+	      return val;
+	    }, null);
 	  }
-
-	  var result = [
-	    data[0],
-	    data.length - 2 + ' more...',
-	    data[2]
-	  ];
-
-	  return result;
 	};
 
-	var printableState = function(state, derivedState) {
-	  var result = {
-	    authToken: state.authToken,
-	    route: (function() {
-	      var route = state.route;
-	      if (!route) {
-	        return route;
-	      }
-	      return '<Route ' + route.uri + '>';
-	    }()),
-	    isAuthenticating: state.isAuthenticating,
-	    itemsResource: (function() {
-	      var resource = state.itemsResource;
-	      if (!(resource && resource.data)) {
-	        return resource;
-	      }
-	      return _.assign(_.clone(resource), {
-	        data: printableArray(resource.data)
-	      });
-	    }()),
-	    itemDetailsResource: state.itemDetailsResource,
-	    itemsOrder: state.itemsOrder
-	  };
+	module.exports = utils;
 
-	  result.derived = {
-	    isAuthenticated: derivedState.isAuthenticated(),
-	    isLoggingIn: derivedState.isLoggingIn(),
-	    isLoggingOut: derivedState.isLoggingOut(),
-	    page: derivedState.page()
-	  };
 
-	  return result;
-	};
+/***/ },
+/* 8 */
+/***/ function(module, exports, __webpack_require__) {
 
-	function init(cb) {
-	  var props = {};
+	var _ = window._;
 
-	  api.loadSession(function(err, authToken) {
-	    props.authToken = authToken;
-	    cb(err, props);
-	  });
-	}
+	var AppModules = {
+	  initialState: function(modules) {
+	    return this.mergeObjectsFromAttribute('initialAppState', modules);
+	  },
 
-	var App = React.createClass({displayName: 'App',
-	  getInitialState: function() {
+	  derivedState: function(modules) {
+	    return this.mergeObjectsFromAttribute('derivedAppState', modules);
+	  },
+
+	  actions: function(modules) {
+	    return this.mergeObjectsFromAttribute('actions', modules);
+	  },
+
+	  routes: function(modules) {
+	    return this.mergeObjectsFromAttribute('routes', modules);
+	  },
+
+	  routeHandlers: function(modules) {
+	    return this.collectValuesFromAttribute('onRouteChange', modules);
+	  },
+
+	  renderers: function(modules) {
+	    var self = this;
 	    return {
-	      authToken: this.props.authToken,
-	      route: {},
-	      isAuthenticating: false,
-	      itemsResource: null,
-	      itemDetailsResource: null,
-	      itemsOrder: 'ascending'
+	      title: self.collectValuesFromAttribute('renderTitle', modules),
+	      navLinks: self.collectValuesFromAttribute('renderNavLinks', modules),
+	      content: self.collectValuesFromAttribute('renderContent', modules)
 	    };
 	  },
 
-	  statics: {
-	    init: init
-	  },
-
-	  componentWillMount: function() {
-	    this.derivedState = this.setUpDerivedState();
-	    this.actions = this.setUpActions(this.derivedState);
-
-	    this.router = this.setUpRouter(this.actions);
-	    this.startRouter();
-	  },
-
-	  setUpDerivedState: function() {
-	    var self = this;
-	    var getState = function() {
-	      return self.state;
-	    };
-	    var derivedState = createDerivedState(getState);
-	    return derivedState;
-	  },
-
-	  setUpActions: function(derivedState) {
-	    var self = this;
-	    var getState = function() {
-	      return self.state;
-	    };
-	    var setState = this.setState.bind(this);
-	    var actions = createActions(getState, setState, derivedState);
-	    return actions;
-	  },
-
-	  setUpRouter: function(actions) {
-	    Aviator.pushStateEnabled = false;
-	    // TODO?: expand a list of routes ['/', '/items', '/items/:id']
-	    // into something Aviator.setRoutes() can take
-	    Aviator.setRoutes({
-	      '/': {
-	        target: actions,
-	        '/': '_updateRoute'
-	      },
-	      '/login': {
-	        target: actions,
-	        '/': '_updateRoute'
-	      },
-	      '/dashboard': {
-	        target: actions,
-	        '/': '_updateRoute'
-	      },
-	      '/items': {
-	        target: actions,
-	        '/': '_updateRoute',
-	        '/:id': '_updateRoute'
+	  mergeObjectsFromAttribute: function(attribute, modules) {
+	    return _.reduce(modules, function(acc, mod) {
+	      var obj = mod[attribute] || {};
+	      if (_.isFunction(obj)) {
+	        obj = obj();
 	      }
-	    });
-	    return Aviator;
+	      return _.assign(acc, obj);
+	    }, {});
 	  },
 
-	  startRouter: function() {
-	    console.log(this.state);
-	    this.router.dispatch();
+	  collectValuesFromAttribute: function(attribute, modules) {
+	    return _.reduce(modules, function(acc, mod) {
+	      var value = mod[attribute];
+	      if (typeof value === 'function') {
+	        value = value.bind(mod);
+	      }
+	      if (value) {
+	        acc.push(value);
+	      }
+	      return acc;
+	    }, []);
+	  }
+	};
+
+	module.exports = AppModules;
+
+
+/***/ },
+/* 9 */
+/***/ function(module, exports, __webpack_require__) {
+
+	/** @jsx React.DOM */
+	var React = window.React;
+
+	var bindToApp = function(app) {
+	return {
+	  initialAppState: function() { return {}; },
+
+	  derivedAppState: function() { return {}; },
+
+	  routes: function(actions) {
+	    return {
+	      '/dashboard': {
+	        target: app.actions,
+	        '/': '_updateRoute'
+	      }
+	    };
 	  },
 
-	  componentWillUpdate: function(nextProps, nextState) {
-	    // Called on props or state changes
-	    // Since app main component has no props,
-	    // this will be called on a state change
-	    var stateDiff = objectDifference(nextState, this.state);
-	    console.log('State changed', stateDiff);
+	  onRouteChange: function(route) {
+	    var path = route.matchedRoute;
+
+	    if (path === '/dashboard') {
+	      return app.actions.showDashboard(route);
+	    }
 	  },
 
-	  componentDidMount: function() {
-	    this.applySyntaxColoring();
-	  },
+	  actions: function() {
+	    return {
+	      showDashboard: function(route) {
+	        app.setState({
+	          route: route,
+	          itemsResource: {status: 'pending'}
+	        });
 
-	  componentDidUpdate: function() {
-	    this.applySyntaxColoring();
-	  },
-
-	  applySyntaxColoring: function() {
-	    var el = this.refs.state.getDOMNode();
-	    hljs.highlightBlock(el);
-	  },
-
-	  render: function() {
-	    var title = this.renderTitle();
-	    var nav = this.renderNav();
-	    var content = this.renderContent();
-	    var state = this.renderState();
-
-	    return (
-	      React.DOM.div(null, 
-	        title,
-	        nav,
-	        content,
-	        state
-	      )
-	     );
+	        app.actions.getItems({});
+	      }
+	    };
 	  },
 
 	  renderTitle: function() {
-	    var page = this.derivedState.page();
+	    var path = app.state.route.matchedRoute;
 
-	    if (page === 'Login') {
-	      return React.DOM.h1(null, 'Login');
+	    if (path === '/dashboard') {
+	      return 'Dashboard';
 	    }
-
-	    if (page === 'Dashboard') {
-	      return React.DOM.h1(null, 'Dashboard');
-	    }
-
-	    if (page === 'Items') {
-	      return React.DOM.h1(null, 'Items');
-	    }
-
-	    if (page === 'Item Details') {
-	      return React.DOM.h1(null, 'Item Details');
-	    }
-
-	    return React.DOM.h1(null, 'Not Found');
 	  },
 
-	  renderNav: function() {
-	    var self = this;
-	    var dashboardLink;
-	    var itemsLink;
-	    var authLink;
+	  renderNavLinks: function() {
+	    var path = app.state.route.matchedRoute;
 
-	    if (!this.derivedState.isAuthenticated()) {
-	      dashboardLink = null;
-	    }
-	    else if (this.derivedState.page() === 'Dashboard') {
-	      dashboardLink = React.DOM.span(null, 'Dashboard · ');
-	    }
-	    else {
-	      dashboardLink = (
-	        React.DOM.span(null, 
-	          React.DOM.a( {href:'#/dashboard'}, 'Dashboard'),React.DOM.span(null, ' · ')
-	        )
-	      );
-	    }
-
-	    if (!this.derivedState.isAuthenticated()) {
-	      itemsLink = null;
-	    }
-	    else if (this.derivedState.page() === 'Items') {
-	      itemsLink = React.DOM.span(null, 'Items · ');
-	    }
-	    else {
-	      var href = '#/items';
-	      if (this.state.itemsOrder === 'descending') {
-	        href = href + '?sort=descending';
-	      }
-	      itemsLink =
-	        React.DOM.span(null, React.DOM.a( {href:href}, 'Items'),React.DOM.span(null, ' · '));
-	    }
-
-	    if (this.derivedState.isLoggingIn()) {
-	      authLink = React.DOM.span(null, 'Logging in...');
-	    }
-	    else if (this.derivedState.isLoggingOut()) {
-	      authLink = React.DOM.span(null, 'Logging out...');
-	    }
-	    else if (!this.derivedState.isAuthenticated()) {
-	      var login = function(e) {
-	        e.preventDefault();
-	        self.actions.login();
-	      };
-
-	      authLink = React.DOM.a( {href:'', onClick:login}, 'Log in');
-	    }
-	    else {
-	      var logout = function(e) {
-	        e.preventDefault();
-	        self.actions.logout();
-	      };
-
-	      authLink = React.DOM.a( {href:'', onClick:logout}, 'Log out');
-	    }
-
-	    return (
-	      React.DOM.p(null, 
-	        dashboardLink,
-	        itemsLink,
-	        authLink
-	      )
-	    );
-	  },
-
-	  renderContent: function() {
-	    var page = this.derivedState.page();
-
-	    if (page === 'Login') {
+	    if (!app.derivedState.isAuthenticated()) {
 	      return null;
 	    }
 
-	    if (page === 'Dashboard') {
+	    if (path === '/dashboard') {
+	      return [React.DOM.span(null, 'Dashboard · ')];
+	    }
+
+	    return [
+	      React.DOM.span(null, 
+	        React.DOM.a( {href:'#/dashboard'}, 'Dashboard'),React.DOM.span(null, ' · ')
+	      )
+	    ];
+	  },
+
+	  renderContent: function() {
+	    var path = app.state.route.matchedRoute;
+
+	    if (path === '/dashboard') {
 	      return this.renderDashboard();
 	    }
-
-	    if (page === 'Items') {
-	      return this.renderItems();
-	    }
-
-	    if (page === 'Item Details') {
-	      return this.renderItemDetails();
-	    }
-
-	    return null;
-	  },
-
-	  renderState: function() {
-	    return (
-	      React.DOM.pre( {ref:'state'}, React.DOM.code(null, 
-	        this.prettyPrintState()
-	      ))
-	    );
-	  },
-
-	  prettyPrintState: function() {
-	    var prettyState = printableState(this.state, this.derivedState);
-	    return JSON.stringify(prettyState, null, 2);
 	  },
 
 	  renderDashboard: function() {
-	    var resource = this.state.itemsResource || {};
+	    var resource = app.state.itemsResource || {};
 
 	    if (resource.status === 'pending') {
 	      return React.DOM.p(null, 'Loading summary...');
@@ -738,10 +808,170 @@
 	    }
 
 	    return React.DOM.p(null, React.DOM.a( {href:'#/items'}, text));
+	  }
+	};
+	};
+
+	module.exports = {
+	  name: 'dashboard',
+	  bindToApp: bindToApp
+	};
+
+
+/***/ },
+/* 10 */
+/***/ function(module, exports, __webpack_require__) {
+
+	/** @jsx React.DOM */
+	var React = window.React;
+	var _ = window._;
+
+	var utils = {
+	  itemsOrderFromRoute: function(route) {
+	    var queryParams = (route && route.queryParams) || {};
+	    if (queryParams.sort === 'descending') {
+	      return queryParams.sort;
+	    }
+	    return 'ascending';
+	  }
+	};
+
+	var bindToApp = function(app) {
+	return {
+	  initialAppState: function() {
+	    return {
+	      itemsOrder: 'ascending',
+	      itemDetailsResource: null
+	    };
+	  },
+
+	  derivedAppState: function() { return {}; },
+
+	  routes: function() {
+	    return {
+	      '/items': {
+	        target: app.actions,
+	        '/': '_updateRoute',
+	        '/:id': '_updateRoute'
+	      }
+	    };
+	  },
+
+	  onRouteChange: function(route) {
+	    var path = route.matchedRoute;
+
+	    if (path === '/items') {
+	      return app.actions.showItems(route);
+	    }
+
+	    if (path === '/items/:id') {
+	      return app.actions.showItemDetails(route);
+	    }
+	  },
+
+	  actions: function() {
+	    return {
+	      showItems: function(route) {
+	        var sort = utils.itemsOrderFromRoute(route);
+
+	        app.setState({
+	          route: route,
+	          itemsResource: {status: 'pending'},
+	          itemsOrder: sort
+	        });
+
+	        app.actions.getItems({sort: sort});
+	      },
+
+	      sortItems: function(order) {
+	        var route = app.state.route;
+	        var path = route.matchedRoute;
+
+	        if (path !== '/items') {
+	          return;
+	        }
+
+	        route = app.router.updateRouteQueryParams(route, {sort: order});
+	        app.actions.showItems(route);
+
+	        var uri = app.router.getUriForRoute(route);
+	        app.router.updateBrowserUri(uri);
+	      },
+
+	      showItemDetails: function(route) {
+	        var id = route.namedParams.id;
+
+	        app.setState({
+	          route: route,
+	          itemDetailsResource: {status: 'pending', request: {id: id}}
+	        });
+
+	        app.api.getItem(id, function(err, item) {
+	          if (err) {
+	            return app.actions.handleResourceError(
+	              'itemDetailsResource', err
+	            );
+	          }
+
+	          app.setState({
+	            itemDetailsResource: {
+	              status: 'success',
+	              data: item,
+	              request: {id: id}
+	            }
+	          });
+	        });
+	      }
+	    };
+	  },
+
+	  renderTitle: function() {
+	    var path = app.state.route.matchedRoute;
+
+	    if (path === '/items') {
+	      return 'Items';
+	    }
+
+	    if (path === '/items/:id') {
+	      return 'Item Details';
+	    }
+	  },
+
+	  renderNavLinks: function() {
+	    var path = app.state.route.matchedRoute;
+
+	    if (!app.derivedState.isAuthenticated()) {
+	      return null;
+	    }
+
+	    if (path === '/items') {
+	      return [React.DOM.span(null, 'Items · ')];
+	    }
+
+	    var href = '#/items';
+	    if (app.state.itemsOrder === 'descending') {
+	      href = href + '?sort=descending';
+	    }
+
+	    return [
+	      React.DOM.span(null, React.DOM.a( {href:href}, 'Items'),React.DOM.span(null, ' · '))
+	    ];
+	  },
+
+	  renderContent: function() {
+	    var path = app.state.route.matchedRoute;
+
+	    if (path === '/items') {
+	      return this.renderItems();
+	    }
+
+	    if (path === '/items/:id') {
+	      return this.renderItemDetails();
+	    }
 	  },
 
 	  renderItems: function() {
-	    var resource = this.state.itemsResource || {};
+	    var resource = app.state.itemsResource || {};
 
 	    if (resource.status === 'pending') {
 	      return React.DOM.p(null, 'Loading items...');
@@ -757,13 +987,12 @@
 	      return React.DOM.p(null, 'No items yet');
 	    }
 
-	    var self = this;
 	    var sort = function(order, e) {
 	      e.preventDefault();
-	      self.actions.sortItems(order);
+	      app.actions.sortItems(order);
 	    };
 	    var sortActions;
-	    if (this.state.itemsOrder === 'descending') {
+	    if (app.state.itemsOrder === 'descending') {
 	      sortActions = (
 	        React.DOM.p(null, 
 	          'Sort: ',
@@ -803,7 +1032,7 @@
 	  },
 
 	  renderItemDetails: function() {
-	    var resource = this.state.itemDetailsResource || {};
+	    var resource = app.state.itemDetailsResource || {};
 
 	    if (resource.status === 'pending') {
 	      return React.DOM.p(null, 'Loading item details...');
@@ -826,10 +1055,16 @@
 	        React.DOM.p(null, React.DOM.strong(null, 'name: '),item.name)
 	      )
 	    );
-	  }
-	});
+	  },
 
-	module.exports = App;
+	  utils: utils
+	};
+	};
+
+	module.exports = {
+	  name: 'items',
+	  bindToApp: bindToApp
+	};
 
 
 /***/ }
