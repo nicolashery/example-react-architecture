@@ -10,6 +10,6 @@
   "noarg": true,
   "quotmark": "single",
   "undef": true,
-  "unused": true,
+  "unused": "vars",
   "trailing": true
 }

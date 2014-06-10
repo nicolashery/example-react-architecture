@@ -9,7 +9,6 @@ var sendStatic = require('send');
 var webpackConfig = require('./webpack.config.js');
 webpackConfig.devtool = 'inline-source-map';
 var webpackCompiler = webpack(webpackConfig);
-webpackConfig.devtool = 'inline-source-map';
 var files = require('./files');
 
 var app = connect();
