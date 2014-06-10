@@ -24,13 +24,10 @@ return {
   derivedAppState: function() { return {}; },
 
   routes: function() {
-    return {
-      '/items': {
-        target: app.actions,
-        '/': '_updateRoute',
-        '/:id': '_updateRoute'
-      }
-    };
+    return [
+      '/items',
+      '/items/:id'
+    ];
   },
 
   onRouteChange: function(route) {

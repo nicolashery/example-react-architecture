@@ -18,6 +18,13 @@ var utils = {
       }
       return val;
     }, null);
+  },
+
+  flatMap: function(coll, func) {
+    return _.reduce(coll, function(acc) {
+      var args = slice.call(arguments, 1);
+      return acc.concat(func.apply(null, args));
+    }, []);
   }
 };
 

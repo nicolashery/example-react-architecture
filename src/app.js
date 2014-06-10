@@ -114,18 +114,10 @@ var App = React.createClass({
   },
 
   setUpRouter: function() {
-    var router = createRouter();
-    var routes = {
-      '/': {
-        target: this.actions,
-        '/': '_updateRoute'
-      },
-      '/login': {
-        target: this.actions,
-        '/': '_updateRoute'
-      }
-    };
-    routes = _.assign(routes, AppModules.routes(this.modules));
+    var router = createRouter(this);
+    var routes = ['/', '/login'];
+    routes = routes.concat(AppModules.routes(this.modules));
+    this.routes = routes;
     router.setRoutes(routes);
     return router;
   },
@@ -183,11 +175,10 @@ var App = React.createClass({
     var self = this;
     var authLink;
 
-    var moduleLinks = _.reduce(this.renderers.navLinks, function(acc, renderer) {
-      var links = renderer();
-      acc = acc.concat(links);
-      return acc;
-    }, []);
+    var moduleLinks = this.utils.flatMap(this.renderers.navLinks,
+    function(renderer) {
+      return renderer();
+    });
 
     if (!moduleLinks.length) {
       moduleLinks = null;

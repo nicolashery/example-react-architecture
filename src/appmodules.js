@@ -1,5 +1,7 @@
 var _ = window._;
 
+var utils = require('./utils');
+
 var AppModules = {
   initialState: function(modules) {
     return this.mergeObjectsFromAttribute('initialAppState', modules);
@@ -14,7 +16,14 @@ var AppModules = {
   },
 
   routes: function(modules) {
-    return this.mergeObjectsFromAttribute('routes', modules);
+    return utils.flatMap(modules, function(mod) {
+      if (mod.routes) {
+        return mod.routes();
+      }
+      else {
+        return [];
+      }
+    });
   },
 
   routeHandlers: function(modules) {

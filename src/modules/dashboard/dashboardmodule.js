@@ -8,12 +8,9 @@ return {
   derivedAppState: function() { return {}; },
 
   routes: function(actions) {
-    return {
-      '/dashboard': {
-        target: app.actions,
-        '/': '_updateRoute'
-      }
-    };
+    return [
+      '/dashboard'
+    ];
   },
 
   onRouteChange: function(route) {
