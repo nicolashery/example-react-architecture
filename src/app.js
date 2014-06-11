@@ -114,11 +114,12 @@ var App = React.createClass({
   },
 
   setUpRouter: function() {
-    var router = createRouter(this);
+    var router = createRouter();
     var routes = ['/', '/login'];
     routes = routes.concat(AppModules.routes(this.modules));
     this.routes = routes;
     router.setRoutes(routes);
+    router.setHandler(this.actions._updateRoute.bind(this.actions));
     return router;
   },
 
@@ -157,7 +158,7 @@ var App = React.createClass({
   },
 
   renderTitle: function() {
-    var path = this.state.route.matchedRoute;
+    var path = this.state.route.path;
 
     if (path === '/login') {
       return <h1>{'Login'}</h1>;
@@ -215,7 +216,7 @@ var App = React.createClass({
   },
 
   renderContent: function() {
-    var path = this.state.route.matchedRoute;
+    var path = this.state.route.path;
 
     if (path === '/login') {
       return null;

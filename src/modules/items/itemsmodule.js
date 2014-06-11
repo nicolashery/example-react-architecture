@@ -4,9 +4,9 @@ var _ = window._;
 
 var utils = {
   itemsOrderFromRoute: function(route) {
-    var queryParams = (route && route.queryParams) || {};
-    if (queryParams.sort === 'descending') {
-      return queryParams.sort;
+    var query = (route && route.query) || {};
+    if (query.sort === 'descending') {
+      return query.sort;
     }
     return 'ascending';
   }
@@ -31,7 +31,7 @@ return {
   },
 
   onRouteChange: function(route) {
-    var path = route.matchedRoute;
+    var path = route.path;
 
     if (path === '/items') {
       return app.actions.showItems(route);
@@ -58,13 +58,13 @@ return {
 
       sortItems: function(order) {
         var route = app.state.route;
-        var path = route.matchedRoute;
+        var path = route.path;
 
         if (path !== '/items') {
           return;
         }
 
-        route = app.router.updateRouteQueryParams(route, {sort: order});
+        route = app.router.updateRouteQuery(route, {sort: order});
         app.actions.showItems(route);
 
         var uri = app.router.getUriForRoute(route);
@@ -72,7 +72,7 @@ return {
       },
 
       showItemDetails: function(route) {
-        var id = route.namedParams.id;
+        var id = route.params.id;
 
         app.setState({
           route: route,
@@ -99,7 +99,7 @@ return {
   },
 
   renderTitle: function() {
-    var path = app.state.route.matchedRoute;
+    var path = app.state.route.path;
 
     if (path === '/items') {
       return 'Items';
@@ -111,7 +111,7 @@ return {
   },
 
   renderNavLinks: function() {
-    var path = app.state.route.matchedRoute;
+    var path = app.state.route.path;
 
     if (!app.derivedState.isAuthenticated()) {
       return null;
@@ -130,7 +130,7 @@ return {
   },
 
   renderContent: function() {
-    var path = app.state.route.matchedRoute;
+    var path = app.state.route.path;
 
     if (path === '/items') {
       return this.renderItems();

@@ -14,7 +14,7 @@ return {
   },
 
   onRouteChange: function(route) {
-    var path = route.matchedRoute;
+    var path = route.path;
 
     if (path === '/dashboard') {
       return app.actions.showDashboard(route);
@@ -35,7 +35,7 @@ return {
   },
 
   renderTitle: function() {
-    var path = app.state.route.matchedRoute;
+    var path = app.state.route.path;
 
     if (path === '/dashboard') {
       return 'Dashboard';
@@ -43,7 +43,7 @@ return {
   },
 
   renderNavLinks: function() {
-    var path = app.state.route.matchedRoute;
+    var path = app.state.route.path;
 
     if (!app.derivedState.isAuthenticated()) {
       return null;
@@ -57,7 +57,7 @@ return {
   },
 
   renderContent: function() {
-    var path = app.state.route.matchedRoute;
+    var path = app.state.route.path;
 
     if (path === '/dashboard') {
       return this.renderDashboard();

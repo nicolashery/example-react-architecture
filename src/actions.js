@@ -3,9 +3,7 @@ var _ = window._;
 var createActions = function(app) {
   var actions = {
     _updateRoute: function(route) {
-      // Really need to deep clone?
-      route = _.cloneDeep(route);
-      var path = route.matchedRoute;
+      var path = route.path;
       var isHomePath = (path === '' && (route.uri === '/' || route.uri === ''));
 
       if (!app.derivedState.isAuthenticated() && path !== '/login') {
