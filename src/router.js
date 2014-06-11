@@ -20,7 +20,7 @@ var createRouter = function() {
 
   function addSlugsToRoutingTable(table, slugs, options) {
     var target = options.target;
-    var handler = options.handler;
+    var method = options.method;
 
     var child = table;
     _.forEach(slugs, function(slug, index) {
@@ -29,13 +29,13 @@ var createRouter = function() {
       if (index === 0 && !existingChild) {
         child = child[slug] = {
            target: target,
-           '/': handler
+           '/': method
         };
         return;
       }
 
       if (index === slugs.length - 1) {
-        child[slug] = handler;
+        child[slug] = method;
         return;
       }
 
@@ -46,7 +46,7 @@ var createRouter = function() {
 
       child = child[slug] = {
         target: target,
-        '/': handler
+        '/': method
       };
       return;
     });
@@ -82,8 +82,18 @@ var createRouter = function() {
   }
   */
   function routeFromAviatorRequest(req) {
+    var path = req.matchedRoute;
+    if (path === '') {
+      if (req.uri === '/' || req.uri === '') {
+        path = '/';
+      }
+      else {
+        path = '/404';
+      }
+    }
+
     return {
-      path: req.matchedRoute,
+      path: path,
       params: req.namedParams,
       query: req.queryParams
     };
@@ -96,9 +106,9 @@ var createRouter = function() {
 
       Aviator.pushStateEnabled = false;
 
-      var routingTable = routingTableFromRoutes(routes, {
+      var routingTable = routingTableFromRoutes(['/404'].concat(routes), {
         target: self,
-        handler: 'onUriChange'
+        method: 'onUriChange'
       });
       Aviator.setRoutes(routingTable);
     },
@@ -118,7 +128,27 @@ var createRouter = function() {
     },
 
     start: function() {
+      this._patchAviator();
       Aviator.dispatch();
+    },
+
+    _patchAviator: function() {
+      var self = this;
+
+      var _navigator = Aviator._navigator;
+      var orignalInvokeActions = _navigator._invokeActions;
+      Aviator._navigator._invokeActions = function(request, options) {
+        // Always call uri change handler, even if not matched route
+        // (handler will take care of "not found" case)
+        if (this._actions.length === 0) {
+          this._actions.push({
+            target: self,
+            method: 'onUriChange'
+          });
+        }
+
+        orignalInvokeActions.call(_navigator, request, options);
+      };
     },
 
     // Usage:

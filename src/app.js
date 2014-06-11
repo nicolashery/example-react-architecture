@@ -160,6 +160,10 @@ var App = React.createClass({
   renderTitle: function() {
     var path = this.state.route.path;
 
+    if (path === '/404') {
+      return <h1>{'Not Found'}</h1>;
+    }
+
     if (path === '/login') {
       return <h1>{'Login'}</h1>;
     }
@@ -169,7 +173,7 @@ var App = React.createClass({
       return <h1>{title}</h1>;
     }
 
-    return <h1>{'Not Found'}</h1>;
+    return null;
   },
 
   renderNav: function() {
@@ -218,6 +222,10 @@ var App = React.createClass({
   renderContent: function() {
     var path = this.state.route.path;
 
+    if (path === '/404') {
+      return this.renderNotFound();
+    }
+
     if (path === '/login') {
       return null;
     }
@@ -245,6 +253,15 @@ var App = React.createClass({
       return acc;
     }, {});
     return JSON.stringify(prettyState, null, 2);
+  },
+
+  renderNotFound: function() {
+    return (
+      <div>
+        <p>{'Sorry! Could not find what you were looking for.'}</p>
+        <p><a href={'#/'}>{'Go back to home page'}</a></p>
+      </div>
+    );
   }
 });
 

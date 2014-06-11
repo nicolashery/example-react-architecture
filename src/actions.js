@@ -4,7 +4,12 @@ var createActions = function(app) {
   var actions = {
     _updateRoute: function(route) {
       var path = route.path;
-      var isHomePath = (path === '' && (route.uri === '/' || route.uri === ''));
+
+      if (path === '/404') {
+        console.log('route not found');
+        app.setState({route: route});
+        return;
+      }
 
       if (!app.derivedState.isAuthenticated() && path !== '/login') {
         console.log('not authenticated, redirecting to login');
@@ -13,7 +18,7 @@ var createActions = function(app) {
       }
 
       if (app.derivedState.isAuthenticated() &&
-          (isHomePath || path === '/login')) {
+          (path === '/' || path === '/login')) {
         console.log('authenticated, redirecting to home');
         actions.navigateTo(app.defaultRoute);
         return;
