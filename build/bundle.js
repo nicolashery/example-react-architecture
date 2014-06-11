@@ -198,18 +198,11 @@
 
 	  setUpRouter: function() {
 	    var router = createRouter();
-	    var routes = {
-	      '/': {
-	        target: this.actions,
-	        '/': '_updateRoute'
-	      },
-	      '/login': {
-	        target: this.actions,
-	        '/': '_updateRoute'
-	      }
-	    };
-	    routes = _.assign(routes, AppModules.routes(this.modules));
+	    var routes = ['/', '/login'];
+	    routes = routes.concat(AppModules.routes(this.modules));
+	    this.routes = routes;
 	    router.setRoutes(routes);
+	    router.setHandler(this.actions._updateRoute.bind(this.actions));
 	    return router;
 	  },
 
@@ -248,7 +241,11 @@
 	  },
 
 	  renderTitle: function() {
-	    var path = this.state.route.matchedRoute;
+	    var path = this.state.route.path;
+
+	    if (path === '/404') {
+	      return React.DOM.h1(null, 'Not Found');
+	    }
 
 	    if (path === '/login') {
 	      return React.DOM.h1(null, 'Login');
@@ -259,33 +256,23 @@
 	      return React.DOM.h1(null, title);
 	    }
 
-	    return React.DOM.h1(null, 'Not Found');
+	    return null;
 	  },
 
 	  renderNav: function() {
 	    var self = this;
-	    var authLink;
 
-	    var moduleLinks = _.reduce(this.renderers.navLinks, function(acc, renderer) {
-	      var links = renderer();
-	      acc = acc.concat(links);
-	      return acc;
-	    }, []);
-
-	    if (!moduleLinks.length) {
-	      moduleLinks = null;
-	    }
-	    else {
-	      moduleLinks = (
-	        React.DOM.span(null, moduleLinks)
-	      );
-	    }
+	    var links = this.utils.flatMap(this.renderers.navLinks,
+	    function(renderer) {
+	      return renderer();
+	    });
+	    links = _.filter(links);
 
 	    if (this.derivedState.isLoggingIn()) {
-	      authLink = React.DOM.span(null, 'Logging in...');
+	      links.push(React.DOM.span(null, 'Logging in...'));
 	    }
 	    else if (this.derivedState.isLoggingOut()) {
-	      authLink = React.DOM.span(null, 'Logging out...');
+	      links.push(React.DOM.span(null, 'Logging out...'));
 	    }
 	    else if (!this.derivedState.isAuthenticated()) {
 	      var login = function(e) {
@@ -293,7 +280,7 @@
 	        self.actions.login();
 	      };
 
-	      authLink = React.DOM.a( {href:'', onClick:login}, 'Log in');
+	      links.push(React.DOM.a( {href:'', onClick:login}, 'Log in'));
 	    }
 	    else {
 	      var logout = function(e) {
@@ -301,19 +288,26 @@
 	        self.actions.logout();
 	      };
 
-	      authLink = React.DOM.a( {href:'', onClick:logout}, 'Log out');
+	      links.push(React.DOM.a( {href:'', onClick:logout}, 'Log out'));
 	    }
+
+	    links = this.utils.interpose(links, function() {
+	      return React.DOM.span(null, ' · ');
+	    });
 
 	    return (
 	      React.DOM.p(null, 
-	        moduleLinks,
-	        authLink
+	        links
 	      )
 	    );
 	  },
 
 	  renderContent: function() {
-	    var path = this.state.route.matchedRoute;
+	    var path = this.state.route.path;
+
+	    if (path === '/404') {
+	      return this.renderNotFound();
+	    }
 
 	    if (path === '/login') {
 	      return null;
@@ -342,6 +336,15 @@
 	      return acc;
 	    }, {});
 	    return JSON.stringify(prettyState, null, 2);
+	  },
+
+	  renderNotFound: function() {
+	    return (
+	      React.DOM.div(null, 
+	        React.DOM.p(null, 'Sorry! Could not find what you were looking for.'),
+	        React.DOM.p(null, React.DOM.a( {href:'#/'}, 'Go back to home page'))
+	      )
+	    );
 	  }
 	});
 
@@ -444,34 +447,177 @@
 	var Aviator = window.Aviator;
 
 	var createRouter = function() {
+
+	  // Helper functions to translate an array of routes
+	  // ex: ['/items', '/items/:id']
+	  // to an Aviator routing table
+	  // ex: {'/items': {target: app.actions, '/': '_updateRoute', '/:id': '_updateRoute'}}
+	  function slugsFromRoute(route) {
+	    if (route === '/') {
+	      return [route];
+	    }
+
+	    var slugs = route.split('/');
+	    slugs = _.filter(slugs);
+	    slugs = _.map(slugs, function(slug) { return '/' + slug; });
+	    return slugs;
+	  }
+
+	  function addSlugsToRoutingTable(table, slugs, options) {
+	    var target = options.target;
+	    var method = options.method;
+
+	    var child = table;
+	    _.forEach(slugs, function(slug, index) {
+	      var existingChild = child[slug];
+
+	      if (index === 0 && !existingChild) {
+	        child = child[slug] = {
+	           target: target,
+	           '/': method
+	        };
+	        return;
+	      }
+
+	      if (index === slugs.length - 1) {
+	        child[slug] = method;
+	        return;
+	      }
+
+	      if (typeof existingChild === 'object') {
+	        child = child[slug];
+	        return;
+	      }
+
+	      child = child[slug] = {
+	        target: target,
+	        '/': method
+	      };
+	      return;
+	    });
+
+	    return table;
+	  }
+
+	  function routingTableFromRoutes(routes, options) {
+	    return _.reduce(routes, function(acc, route) {
+	      var slugs = slugsFromRoute(route);
+	        return addSlugsToRoutingTable(acc, slugs, options);
+	      }, {});
+	  }
+
+	  // Helper functions to translate Aviator Request objects
+	  // to simpler "Express-like" route objects
+
+	  /* FROM:
+	  {
+	    "namedParams": {"id": "123"},
+	    "queryParams": {"sort": "descending"},
+	    "params": {"id": "123", "sort": "descending"},
+	    "uri": "/data/123",
+	    "queryString": "?sort=descending",
+	    "matchedRoute": "/data/:id"
+	  }*/
+
+	  /*TO:
+	  {
+	    "path": "/data/:id",
+	    "params": {"id": "123"},
+	    "query": {"sort": "descending"}
+	  }
+	  */
+	  function routeFromAviatorRequest(req) {
+	    var path = req.matchedRoute;
+	    if (path === '') {
+	      if (req.uri === '/' || req.uri === '') {
+	        path = '/';
+	      }
+	      else {
+	        path = '/404';
+	      }
+	    }
+
+	    return {
+	      path: path,
+	      params: req.namedParams,
+	      query: req.queryParams
+	    };
+	  }
+
+	  // Actual router object
 	  var router = {
 	    setRoutes: function(routes) {
+	      var self = this;
+
 	      Aviator.pushStateEnabled = false;
-	      Aviator.setRoutes(routes);
+
+	      var routingTable = routingTableFromRoutes(['/404'].concat(routes), {
+	        target: self,
+	        method: 'onUriChange'
+	      });
+	      Aviator.setRoutes(routingTable);
+	    },
+
+	    setHandler: function(handler) {
+	      if (typeof handler !== 'function') {
+	        throw new Error('onRouteChange handler must be a function');
+	      }
+	      this.onRouteChange = handler;
+	    },
+
+	    onRouteChange: _.noop,
+
+	    onUriChange: function(req) {
+	      var route = routeFromAviatorRequest(req);
+	      this.onRouteChange(route);
 	    },
 
 	    start: function() {
+	      this._patchAviator();
 	      Aviator.dispatch();
 	    },
 
+	    _patchAviator: function() {
+	      var self = this;
+
+	      var _navigator = Aviator._navigator;
+	      var orignalInvokeActions = _navigator._invokeActions;
+	      Aviator._navigator._invokeActions = function(request, options) {
+	        // Always call uri change handler, even if not matched route
+	        // (handler will take care of "not found" case)
+	        if (this._actions.length === 0) {
+	          this._actions.push({
+	            target: self,
+	            method: 'onUriChange'
+	          });
+	        }
+
+	        orignalInvokeActions.call(_navigator, request, options);
+	      };
+	    },
+
+	    // Usage:
+	    // buildUri('/data/:id', {params: {id: '123'}, query: {sort: 'descending'}})
+	    // or
+	    // buildUri('/data/123?sort=descending')
 	    buildUri: function(pattern, options) {
 	      var _navigator = Aviator._navigator;
 	      options = options || {};
 	      var uri = pattern;
 
-	      var namedParams = options.namedParams;
-	      var queryParams = options.queryParams;
+	      var params = options.params;
+	      var query = options.query;
 
-	      if (queryParams) {
-	        uri += _navigator.serializeQueryParams(queryParams);
-	      }
-
-	      if (namedParams) {
-	        for (var p in namedParams) {
-	          if (namedParams.hasOwnProperty(p)) {
-	            uri = uri.replace(':' + p, encodeURIComponent(namedParams[p]));
+	      if (params) {
+	        for (var p in params) {
+	          if (params.hasOwnProperty(p)) {
+	            uri = uri.replace(':' + p, encodeURIComponent(params[p]));
 	          }
 	        }
+	      }
+
+	      if (query) {
+	        uri += _navigator.serializeQueryParams(query);
 	      }
 
 	      return uri;
@@ -492,6 +638,8 @@
 	      var route = _navigator.createRouteForURI(uri);
 	      route = _navigator.createRequest(uri, queryString, route.matchedRoute);
 
+	      route = routeFromAviatorRequest(route);
+
 	      return route;
 	    },
 
@@ -500,19 +648,17 @@
 	    },
 
 	    getUriForRoute: function(route) {
-	      var uri = router.buildUri(route.matchedRoute, {
-	        namedParams: route.namedParams,
-	        queryParams: route.queryParams
+	      var uri = router.buildUri(route.path, {
+	        params: route.params,
+	        query: route.query
 	      });
 	      return uri;
 	    },
 
-	    updateRouteQueryParams: function(route, queryParams) {
+	    updateRouteQuery: function(route, query) {
 	      route = _.cloneDeep(route);
-	      route.queryParams = _.assign(route.queryParams, queryParams);
-	      var uri = router.getUriForRoute(route);
-	      var newRoute = router.getRouteForUri(uri);
-	      return newRoute;
+	      route.query = _.assign(route.query, query);
+	      return route;
 	    }
 	  };
 
@@ -531,10 +677,13 @@
 	var createActions = function(app) {
 	  var actions = {
 	    _updateRoute: function(route) {
-	      // Really need to deep clone?
-	      route = _.cloneDeep(route);
-	      var path = route.matchedRoute;
-	      var isHomePath = (path === '' && (route.uri === '/' || route.uri === ''));
+	      var path = route.path;
+
+	      if (path === '/404') {
+	        console.log('route not found');
+	        app.setState({route: route});
+	        return;
+	      }
 
 	      if (!app.derivedState.isAuthenticated() && path !== '/login') {
 	        console.log('not authenticated, redirecting to login');
@@ -543,7 +692,7 @@
 	      }
 
 	      if (app.derivedState.isAuthenticated() &&
-	          (isHomePath || path === '/login')) {
+	          (path === '/' || path === '/login')) {
 	        console.log('authenticated, redirecting to home');
 	        actions.navigateTo(app.defaultRoute);
 	        return;
@@ -639,6 +788,27 @@
 	      }
 	      return val;
 	    }, null);
+	  },
+
+	  flatMap: function(coll, func) {
+	    return _.reduce(coll, function(acc) {
+	      var args = slice.call(arguments, 1);
+	      return acc.concat(func.apply(null, args));
+	    }, []);
+	  },
+
+	  interpose: function(coll, f) {
+	    if (typeof f !== 'function') {
+	      f = _.identity.bind(null, f);
+	    }
+
+	    return _.reduce(coll, function(acc, item, index) {
+	      if (index !== 0) {
+	        acc.push(f(index - 1));
+	      }
+	      acc.push(item);
+	      return acc;
+	    }, []);
 	  }
 	};
 
@@ -650,6 +820,8 @@
 /***/ function(module, exports, __webpack_require__) {
 
 	var _ = window._;
+
+	var utils = __webpack_require__(7);
 
 	var AppModules = {
 	  initialState: function(modules) {
@@ -665,7 +837,14 @@
 	  },
 
 	  routes: function(modules) {
-	    return this.mergeObjectsFromAttribute('routes', modules);
+	    return utils.flatMap(modules, function(mod) {
+	      if (mod.routes) {
+	        return mod.routes();
+	      }
+	      else {
+	        return [];
+	      }
+	    });
 	  },
 
 	  routeHandlers: function(modules) {
@@ -722,16 +901,13 @@
 	  derivedAppState: function() { return {}; },
 
 	  routes: function(actions) {
-	    return {
-	      '/dashboard': {
-	        target: app.actions,
-	        '/': '_updateRoute'
-	      }
-	    };
+	    return [
+	      '/dashboard'
+	    ];
 	  },
 
 	  onRouteChange: function(route) {
-	    var path = route.matchedRoute;
+	    var path = route.path;
 
 	    if (path === '/dashboard') {
 	      return app.actions.showDashboard(route);
@@ -752,7 +928,7 @@
 	  },
 
 	  renderTitle: function() {
-	    var path = app.state.route.matchedRoute;
+	    var path = app.state.route.path;
 
 	    if (path === '/dashboard') {
 	      return 'Dashboard';
@@ -760,25 +936,21 @@
 	  },
 
 	  renderNavLinks: function() {
-	    var path = app.state.route.matchedRoute;
+	    var path = app.state.route.path;
 
 	    if (!app.derivedState.isAuthenticated()) {
 	      return null;
 	    }
 
 	    if (path === '/dashboard') {
-	      return [React.DOM.span(null, 'Dashboard · ')];
+	      return [React.DOM.span(null, 'Dashboard')];
 	    }
 
-	    return [
-	      React.DOM.span(null, 
-	        React.DOM.a( {href:'#/dashboard'}, 'Dashboard'),React.DOM.span(null, ' · ')
-	      )
-	    ];
+	    return [React.DOM.a( {href:'#/dashboard'}, 'Dashboard')];
 	  },
 
 	  renderContent: function() {
-	    var path = app.state.route.matchedRoute;
+	    var path = app.state.route.path;
 
 	    if (path === '/dashboard') {
 	      return this.renderDashboard();
@@ -828,9 +1000,9 @@
 
 	var utils = {
 	  itemsOrderFromRoute: function(route) {
-	    var queryParams = (route && route.queryParams) || {};
-	    if (queryParams.sort === 'descending') {
-	      return queryParams.sort;
+	    var query = (route && route.query) || {};
+	    if (query.sort === 'descending') {
+	      return query.sort;
 	    }
 	    return 'ascending';
 	  }
@@ -848,17 +1020,14 @@
 	  derivedAppState: function() { return {}; },
 
 	  routes: function() {
-	    return {
-	      '/items': {
-	        target: app.actions,
-	        '/': '_updateRoute',
-	        '/:id': '_updateRoute'
-	      }
-	    };
+	    return [
+	      '/items',
+	      '/items/:id'
+	    ];
 	  },
 
 	  onRouteChange: function(route) {
-	    var path = route.matchedRoute;
+	    var path = route.path;
 
 	    if (path === '/items') {
 	      return app.actions.showItems(route);
@@ -885,13 +1054,13 @@
 
 	      sortItems: function(order) {
 	        var route = app.state.route;
-	        var path = route.matchedRoute;
+	        var path = route.path;
 
 	        if (path !== '/items') {
 	          return;
 	        }
 
-	        route = app.router.updateRouteQueryParams(route, {sort: order});
+	        route = app.router.updateRouteQuery(route, {sort: order});
 	        app.actions.showItems(route);
 
 	        var uri = app.router.getUriForRoute(route);
@@ -899,7 +1068,7 @@
 	      },
 
 	      showItemDetails: function(route) {
-	        var id = route.namedParams.id;
+	        var id = route.params.id;
 
 	        app.setState({
 	          route: route,
@@ -926,7 +1095,7 @@
 	  },
 
 	  renderTitle: function() {
-	    var path = app.state.route.matchedRoute;
+	    var path = app.state.route.path;
 
 	    if (path === '/items') {
 	      return 'Items';
@@ -938,14 +1107,14 @@
 	  },
 
 	  renderNavLinks: function() {
-	    var path = app.state.route.matchedRoute;
+	    var path = app.state.route.path;
 
 	    if (!app.derivedState.isAuthenticated()) {
 	      return null;
 	    }
 
 	    if (path === '/items') {
-	      return [React.DOM.span(null, 'Items · ')];
+	      return [React.DOM.span(null, 'Items')];
 	    }
 
 	    var href = '#/items';
@@ -953,13 +1122,11 @@
 	      href = href + '?sort=descending';
 	    }
 
-	    return [
-	      React.DOM.span(null, React.DOM.a( {href:href}, 'Items'),React.DOM.span(null, ' · '))
-	    ];
+	    return [React.DOM.a( {href:href}, 'Items')];
 	  },
 
 	  renderContent: function() {
-	    var path = app.state.route.matchedRoute;
+	    var path = app.state.route.path;
 
 	    if (path === '/items') {
 	      return this.renderItems();
