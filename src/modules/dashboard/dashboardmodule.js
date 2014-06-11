@@ -50,14 +50,10 @@ return {
     }
 
     if (path === '/dashboard') {
-      return [<span>{'Dashboard · '}</span>];
+      return [<span>{'Dashboard'}</span>];
     }
 
-    return [
-      <span>
-        <a href={'#/dashboard'}>{'Dashboard'}</a><span>{' · '}</span>
-      </span>
-    ];
+    return [<a href={'#/dashboard'}>{'Dashboard'}</a>];
   },
 
   renderContent: function() {

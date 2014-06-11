@@ -118,7 +118,7 @@ return {
     }
 
     if (path === '/items') {
-      return [<span>{'Items · '}</span>];
+      return [<span>{'Items'}</span>];
     }
 
     var href = '#/items';
@@ -126,9 +126,7 @@ return {
       href = href + '?sort=descending';
     }
 
-    return [
-      <span><a href={href}>{'Items'}</a><span>{' · '}</span></span>
-    ];
+    return [<a href={href}>{'Items'}</a>];
   },
 
   renderContent: function() {

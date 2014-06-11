@@ -25,6 +25,20 @@ var utils = {
       var args = slice.call(arguments, 1);
       return acc.concat(func.apply(null, args));
     }, []);
+  },
+
+  interpose: function(coll, f) {
+    if (typeof f !== 'function') {
+      f = _.identity.bind(null, f);
+    }
+
+    return _.reduce(coll, function(acc, item, index) {
+      if (index !== 0) {
+        acc.push(f(index - 1));
+      }
+      acc.push(item);
+      return acc;
+    }, []);
   }
 };
 

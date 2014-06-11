@@ -173,27 +173,18 @@ var App = React.createClass({
 
   renderNav: function() {
     var self = this;
-    var authLink;
 
-    var moduleLinks = this.utils.flatMap(this.renderers.navLinks,
+    var links = this.utils.flatMap(this.renderers.navLinks,
     function(renderer) {
       return renderer();
     });
-
-    if (!moduleLinks.length) {
-      moduleLinks = null;
-    }
-    else {
-      moduleLinks = (
-        <span>{moduleLinks}</span>
-      );
-    }
+    links = _.filter(links);
 
     if (this.derivedState.isLoggingIn()) {
-      authLink = <span>{'Logging in...'}</span>;
+      links.push(<span>{'Logging in...'}</span>);
     }
     else if (this.derivedState.isLoggingOut()) {
-      authLink = <span>{'Logging out...'}</span>;
+      links.push(<span>{'Logging out...'}</span>);
     }
     else if (!this.derivedState.isAuthenticated()) {
       var login = function(e) {
@@ -201,7 +192,7 @@ var App = React.createClass({
         self.actions.login();
       };
 
-      authLink = <a href={''} onClick={login}>{'Log in'}</a>;
+      links.push(<a href={''} onClick={login}>{'Log in'}</a>);
     }
     else {
       var logout = function(e) {
@@ -209,13 +200,16 @@ var App = React.createClass({
         self.actions.logout();
       };
 
-      authLink = <a href={''} onClick={logout}>{'Log out'}</a>;
+      links.push(<a href={''} onClick={logout}>{'Log out'}</a>);
     }
+
+    links = this.utils.interpose(links, function() {
+      return <span>{' · '}</span>;
+    });
 
     return (
       <p>
-        {moduleLinks}
-        {authLink}
+        {links}
       </p>
     );
   },
