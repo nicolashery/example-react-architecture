@@ -1,6 +1,6 @@
 # Example React Architecture
 
-One way of organizing the architecture of a web app built with [React](http://facebook.github.io/react).
+### NOTE: I am no longer working on this (moved my explorations to [nicolashery/example-react-app](https://github.com/nicolashery/example-react-app)), but will leave it up here for now
 
 ## Quick start
 
